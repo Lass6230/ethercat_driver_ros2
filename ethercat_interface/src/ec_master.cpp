@@ -16,6 +16,8 @@
 #include "ethercat_interface/ec_slave.hpp"
 
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
 #include <sys/resource.h>
 #include <pthread.h>
 #include <sched.h>
@@ -23,6 +25,7 @@
 #include <time.h>
 #include <sys/mman.h>
 #include <string.h>
+#include <errno.h>
 #include <iostream>
 #include <sstream>
 #include <bitset>
@@ -30,6 +33,64 @@
 
 namespace ethercat_interface
 {
+
+namespace
+{
+#define EC_IOCTL_TYPE 0xa4
+#define EC_IOWR(nr, type)  _IOWR(EC_IOCTL_TYPE, nr, type)
+#define EC_IOCTL_SLAVE_SDO_DOWNLOAD  EC_IOWR(0x0f, ec_ioctl_slave_sdo_download_t)
+
+typedef struct
+{
+  uint16_t slave_position;
+  uint16_t sdo_index;
+  uint8_t sdo_entry_subindex;
+  uint8_t complete_access;
+  size_t data_size;
+  uint8_t * data;
+  uint32_t abort_code;
+} ec_ioctl_slave_sdo_download_t;
+
+int sdo_download_complete_via_ioctl(
+  unsigned int master_index,
+  uint16_t slave_position,
+  uint16_t sdo_index,
+  uint8_t sdo_subindex,
+  uint8_t * data,
+  size_t data_size,
+  uint32_t * abort_code)
+{
+  std::stringstream dev;
+  dev << "/dev/EtherCAT" << master_index;
+  const int fd = ::open(dev.str().c_str(), O_RDWR);
+  if (fd < 0) {
+    return -errno;
+  }
+
+  ec_ioctl_slave_sdo_download_t req = {};
+  req.slave_position = slave_position;
+  req.sdo_index = sdo_index;
+  req.sdo_entry_subindex = sdo_subindex;
+  req.complete_access = 1;
+  req.data_size = data_size;
+  req.data = data;
+
+  const int ret = ioctl(fd, EC_IOCTL_SLAVE_SDO_DOWNLOAD, &req);
+  const int saved_errno = errno;
+  ::close(fd);
+
+  if (abort_code) {
+    *abort_code = req.abort_code;
+  }
+
+  if (ret < 0) {
+    return -saved_errno;
+  }
+
+  return 0;
+}
+
+}  // namespace
 
 DomainInfo::DomainInfo(ec_master_t * master)
 {
@@ -55,6 +116,7 @@ DomainInfo::~DomainInfo()
 
 EcMaster::EcMaster(const unsigned int master)
 {
+  master_index_ = master;
   master_ = ecrt_request_master(master);
   if (master_ == NULL) {
     printWarning("Failed to obtain master.");
@@ -120,6 +182,11 @@ void EcMaster::addSlave(EcSlave * slave)
 
   slave_info_.push_back(slave_info);
 
+  // Auto-register any CA SDO fallback the slave provides.
+  if (auto fb = slave->getCaSdoFallback()) {
+    ca_sdo_fallbacks_.push_back(fb);
+  }
+
   // Setup PDOs registered by the slave.
   // For each slave, PDOs are grouped by sync manager.
   // For each active sync manager of the slave,
@@ -164,18 +231,60 @@ int EcMaster::configSlaveSdo(
   uint16_t slave_position, SdoConfigEntry sdo_config,
   uint32_t * abort_code)
 {
-  uint8_t buffer[8];
-  sdo_config.buffer_write(buffer);
-  int ret = ecrt_master_sdo_download(
+  const size_t payload_size = sdo_config.data_size();
+  if (payload_size == 0) {
+    return -1;
+  }
+
+  std::vector<uint8_t> buffer(payload_size, 0u);
+  sdo_config.buffer_write(buffer.data());
+
+  if (sdo_config.complete_access) {
+    const int ca_ret = sdo_download_complete_via_ioctl(
+      master_index_,
+      slave_position,
+      sdo_config.index,
+      sdo_config.sub_index,
+      buffer.data(),
+      payload_size,
+      abort_code
+    );
+
+    if (ca_ret == 0) {
+      return 0;
+    }
+
+    // Try registered per-slave CA SDO fallback handlers.
+    for (auto & fallback : ca_sdo_fallbacks_) {
+      const int fallback_ret = fallback(
+        master_, slave_position, sdo_config.index, buffer.data(), payload_size, abort_code);
+      if (fallback_ret == 0) {
+        RCLCPP_WARN(
+          rclcpp::get_logger("EthercatDriver"),
+          "CA SDO fallback applied for slave %u index 0x%04x",
+          slave_position,
+          sdo_config.index);
+        return 0;
+      }
+    }
+
+    return ca_ret;
+  }
+
+  return ecrt_master_sdo_download(
     master_,
     slave_position,
     sdo_config.index,
     sdo_config.sub_index,
-    buffer,
-    sdo_config.data_size(),
+    buffer.data(),
+    payload_size,
     abort_code
   );
-  return ret;
+}
+
+void EcMaster::registerCaSdoFallback(CaSdoFallbackFn fn)
+{
+  ca_sdo_fallbacks_.push_back(fn);
 }
 
 void EcMaster::registerPDOInDomain(

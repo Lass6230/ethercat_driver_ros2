@@ -128,6 +128,10 @@ bool CLASSM::load_from_config(YAML::Node channel_config)
     }
   }
 
+  if (channel_config["right_shift"]) {
+    right_shift = channel_config["right_shift"].as<uint8_t>();
+  }
+
   // skip
   if (channel_config["skip"]) {
     skip = channel_config["skip"].as<bool>();
@@ -139,6 +143,9 @@ bool CLASSM::load_from_config(YAML::Node channel_config)
 double CLASSM::ec_read(uint8_t * domain_address, size_t /*i*/)
 {
   last_value = read_function_(domain_address, mask);
+  if (right_shift > 0) {
+    last_value = static_cast<double>(static_cast<int64_t>(last_value) >> right_shift);
+  }
   last_value = factor * last_value + offset;
   if (is_state_interface_defined() ) {
     state_interface_ptr_->at(state_interface_index_) = last_value;

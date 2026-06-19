@@ -292,6 +292,10 @@ bool CLASSM::load_from_config(YAML::Node channel_config)
     }
   }
 
+  if (channel_config["right_shift"] && id != std::numeric_limits<size_t>::max()) {
+    v_data[id].right_shift = channel_config["right_shift"].as<uint8_t>();
+  }
+
   // skip
   if (channel_config["skip"]) {
     skip = channel_config["skip"].as<bool>();
@@ -356,6 +360,10 @@ bool CLASSM::load_from_config(YAML::Node channel_config)
           return false;
         }
       }
+
+      if (map["right_shift"]) {
+        v_data[id].right_shift = map["right_shift"].as<uint8_t>();
+      }
     }
   }
 
@@ -376,6 +384,9 @@ double CLASSM::ec_read(uint8_t * domain_address, size_t i)
 {
   InterfaceDataWithAddrOffset & d = v_data[i];
   double last_value = read_functions_[i](domain_address + d.addr_offset, d.mask);
+  if (d.right_shift > 0) {
+    last_value = static_cast<double>(static_cast<int64_t>(last_value) >> d.right_shift);
+  }
   last_value = d.factor * last_value + d.offset;
   if (is_state_interface_defined(i) ) {
     state_interface_ptr_->at(interface_ids_[i]) = last_value;

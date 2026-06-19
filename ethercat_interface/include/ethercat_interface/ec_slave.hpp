@@ -16,6 +16,7 @@
 #define ETHERCAT_INTERFACE__EC_SLAVE_HPP_
 
 #include <ecrt.h>
+#include <functional>
 #include <map>
 #include <vector>
 #include <unordered_map>
@@ -27,6 +28,12 @@
 
 namespace ethercat_interface
 {
+
+/** Signature for a complete-access SDO fallback handler.
+ *  Called when an ioctl-based CA write fails.
+ *  Return 0 on success, non-zero if this handler does not apply or also fails. */
+using CaSdoFallbackFn = std::function<
+  int(ec_master_t *, uint16_t, uint16_t, const uint8_t *, size_t, uint32_t *)>;
 
 class EcSlave
 {
@@ -69,6 +76,10 @@ public:
     parameters_ = slave_parameters;
     return true;
   }
+
+  /** Return a CA SDO fallback handler for this slave, or nullptr if none needed.
+   *  Auto-registered by EcMaster::addSlave when non-null. */
+  virtual CaSdoFallbackFn getCaSdoFallback() const {return nullptr;}
 
 public:
   inline

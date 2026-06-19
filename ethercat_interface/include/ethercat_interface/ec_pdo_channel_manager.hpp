@@ -84,6 +84,7 @@ struct InterfaceData
 {
   bool override_command = false;
   uint8_t mask = 255;
+  uint8_t right_shift = 0;
   double default_value = std::numeric_limits<double>::quiet_NaN();
   /** last_value stores either:
    * - the last read value modified by mask, factor and offset

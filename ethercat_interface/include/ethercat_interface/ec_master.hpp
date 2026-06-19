@@ -140,6 +140,12 @@ public:
     */
   int configSlaveSdo(uint16_t slave_position, SdoConfigEntry sdo_config, uint32_t * abort_code);
 
+  /** Register a complete-access SDO fallback handler.
+   *  Handlers are tried in registration order when a CA ioctl write fails.
+   *  Slaves can also provide one via getCaSdoFallback() and it is auto-registered
+   *  in addSlave(). */
+  void registerCaSdoFallback(CaSdoFallbackFn fn);
+
   /** call after adding all slaves, and before update */
   bool activate();
 
@@ -275,6 +281,7 @@ protected:
     const ec_pdo_entry_reg_t & pdo_entry_reg);
 
   /** EtherCAT master data */
+  unsigned int master_index_ = 0;
   ec_master_t * master_ = NULL;
   ec_master_state_t master_state_ = {};
 
@@ -302,6 +309,9 @@ protected:
 
   /** Data transfers (necessary for transfer communication) */
   std::vector<EcTransferInfo> transfers_;
+
+  /** Registered CA SDO fallback handlers (tried in order on CA write failure) */
+  std::vector<CaSdoFallbackFn> ca_sdo_fallbacks_;
 
 protected:
   friend struct DomainInfo;

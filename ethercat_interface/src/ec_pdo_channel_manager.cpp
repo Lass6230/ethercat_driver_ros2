@@ -29,6 +29,7 @@ const std::vector<std::string> ec_pdo_channel_data_types = {
   "bool",
   "int8", "uint8",
   "int16", "uint16",
+  "int16_be", "uint16_be",
   "int32", "uint32",
   "int64", "uint64",
   "float", "real32",
@@ -40,6 +41,7 @@ const std::vector<uint8_t> ec_pdo_channel_data_bits = {
   0,
   1,
   8, 8,
+  16, 16,
   16, 16,
   32, 32,
   64, 64,
@@ -165,6 +167,20 @@ double int16_read(uint8_t * domain_address, uint8_t /*data_mask*/)
   return static_cast<double>(EC_READ_S16(domain_address));
 }
 
+double int16_be_read(uint8_t * domain_address, uint8_t /*data_mask*/)
+{
+  uint8_t * p = domain_address;
+  int16_t val = static_cast<int16_t>((p[0] << 8) | p[1]);
+  return static_cast<double>(val);
+}
+
+double uint16_be_read(uint8_t * domain_address, uint8_t /*data_mask*/)
+{
+  uint8_t * p = domain_address;
+  uint16_t val = static_cast<uint16_t>((p[0] << 8) | p[1]);
+  return static_cast<double>(val);
+}
+
 double uint32_read(uint8_t * domain_address, uint8_t /*data_mask*/)
 {
   return static_cast<double>(EC_READ_U32(domain_address));
@@ -217,6 +233,7 @@ const SingleReadFunctionType ec_pdo_single_read_functions[] = {
   bool_read,
   int8_read, uint8_read,
   int16_read, uint16_read,
+  int16_be_read, uint16_be_read,
   int32_read, uint32_read,
   int64_read, uint64_read,
   real32_read, real32_read,
@@ -246,6 +263,20 @@ void uint16_write(uint8_t * domain_address, double value, uint8_t /*data_mask*/)
 void int16_write(uint8_t * domain_address, double value, uint8_t /*data_mask*/)
 {
   EC_WRITE_S16(domain_address, static_cast<int16_t>(value));
+}
+
+void int16_be_write(uint8_t * domain_address, double value, uint8_t /*data_mask*/)
+{
+  int16_t val = static_cast<int16_t>(value);
+  domain_address[0] = static_cast<uint8_t>((val >> 8) & 0xFF);
+  domain_address[1] = static_cast<uint8_t>(val & 0xFF);
+}
+
+void uint16_be_write(uint8_t * domain_address, double value, uint8_t /*data_mask*/)
+{
+  uint16_t val = static_cast<uint16_t>(value);
+  domain_address[0] = static_cast<uint8_t>((val >> 8) & 0xFF);
+  domain_address[1] = static_cast<uint8_t>(val & 0xFF);
 }
 
 void uint32_write(uint8_t * domain_address, double value, uint8_t /*data_mask*/)
@@ -334,6 +365,7 @@ const SingleWriteFunctionType ec_pdo_single_write_functions[] = {
   bool_compose,
   int8_write, uint8_write,
   int16_write, uint16_write,
+  int16_be_write, uint16_be_write,
   int32_write, uint32_write,
   int64_write, uint64_write,
   real32_write, real32_write,
